@@ -26,16 +26,16 @@ import { orderRouter } from "./routes/order.route.js";
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
-const stripe = stripeLib(process.env.STRIPE_SECRET); // Initialize Stripe with your secret key
+const stripe = process.env.STRIPE_SECRET
+  ? stripeLib(process.env.STRIPE_SECRET)
+  : null;
+
 const FRONT_DOMAIN =
   process.env.FRONT_DOMAIN || "https://studio-chairs.vercel.app";
 
 // Dynamically set the origin based on the environment
 const corsOptions = {
-  origin:
-    process.env.NODE_ENV === "production"
-      ? "https://studio-chairs.vercel.app"
-      : "http://localhost:3001",
+  origin: FRONT_DOMAIN,
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
@@ -78,33 +78,35 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 // GitHub Authentication 2.0 Strategy
 // Config GitHubStrategy
-passport.use(
-  new GitHubStrategy(
-    {
-      clientID: process.env.GITHUB_CLIENT,
-      clientSecret: process.env.GITHUB_SECRET,
-      callbackURL:
-        process.env.NODE_ENV === "production"
-          ? "https://studio-chairs.vercel.app/auth/github/callback"
-          : "http://localhost:3000/auth/github/callback", // Changed to relative URL that points to our backend
-    },
-    async (accessToken, refreshToken, profile, done) => {
-      try {
-        // Check if user already exists
-        const email = profile.emails[0].value;
-        let user = await findUserByEmail(email);
+if (process.env.GITHUB_CLIENT && process.env.GITHUB_SECRET) {
+  passport.use(
+    new GitHubStrategy(
+      {
+        clientID: process.env.GITHUB_CLIENT,
+        clientSecret: process.env.GITHUB_SECRET,
+        callbackURL:
+          process.env.NODE_ENV === "production"
+            ? "https://studio-chairs.vercel.app/auth/github/callback"
+            : "http://localhost:3000/auth/github/callback",
+      },
+      async (accessToken, refreshToken, profile, done) => {
+        try {
+          const email = profile.emails[0].value;
+          let user = await findUserByEmail(email);
 
-        if (!user) {
-          // Insert new GitHub user without password and salt
-          user = await insertUser(profile.displayName, email);
+          if (!user) {
+            user = await insertUser(profile.displayName, email);
+          }
+
+          done(null, user);
+        } catch (error) {
+          done(error);
         }
-        done(null, user);
-      } catch (error) {
-        done(error);
       }
-    }
-  )
-);
+    )
+  );
+}
+
 
 // Allow referrer info for HTTPS→HTTPS requests
 app.use((req, res, next) => {
@@ -138,7 +140,12 @@ app.get(
 // Stripe endpoint
 app.post("/create-checkout-session", async (req, res) => {
   try {
-    const { cartItems } = req.body;
+    if (!stripe) {
+      return res.status(503).json({
+        error: "Stripe payment is not configured",
+      });
+    } 
+	  const { cartItems } = req.body;
 
     // Fetch product details, including stripe_price_id, from the database
     const productsQuery = `
