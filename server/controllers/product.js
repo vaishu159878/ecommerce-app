@@ -12,9 +12,13 @@ const getProducts = async (req, res) => {
         `
         const { rows } = await pool.query(query)
         res.status(200).json({ data: rows })
-    } catch (error) {
-        res.status(500).json({ message: 'Error retrieving all products', error })
-    }
+    }  catch (error) {
+    console.error("Error retrieving all products:", error);
+    res.status(500).json({
+        message: "Error retrieving all products",
+        error: error.message
+    });
+}
 }
 
 // Retrieving product
